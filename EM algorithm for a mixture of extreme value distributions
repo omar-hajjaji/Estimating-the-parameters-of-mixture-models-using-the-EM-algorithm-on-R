@@ -1,0 +1,239 @@
+## EM algorithm for the estimation of the mixture of extreme value distributions,
+
+## We begin by the initialisation of the algorithm,
+
+initz <- function(x, ncomp, init.method = c("kmeans", "hclust")) {
+
+	init.method = match.arg(init.method)
+	# check if 'x' is a matrix (from grouped data)
+	if(is.matrix(x)) {
+		x <- reinstate(x)
+	}
+	if(init.method == "k-means") {
+		a <- kmeans(x, centers = ncomp)$cluster
+	} else {
+		a <- cutree(hclust(dist(x)), ncomp)
+	}
+	res <- list()
+	for(i in 1:ncomp) {
+		res[[i]] <- x[a == i]
+	}
+	count <- sapply(res, length)
+	pi <- count / sum(count)
+	mu <- sapply(res, mean)
+	sd <- sapply(res, sd)
+	order <- order(mu)
+
+	pi <- pi[order]
+	mu <- mu[order]
+	sd <- sd[order]
+	list(pi = pi, mu = mu, sd = sd)
+}
+
+U1=initz(S,ncomp=2,init.method= "kmeans")
+U=initz(S[S>0],ncomp = 2,init.method = "kmeans")
+
+## EM algorithm for a mixture of two weibull,
+
+KK= 2
+x=S[S>0]
+n = length(x)                         
+k1=(U$sd[1]/U$mu[1])^(-1.086)
+lambda1=U$mu[1]/gamma(1 + 1/k1)
+k2=(U$sd[2]/U$mu[2])^(-1.086)
+lambda2=U$mu[2]/gamma(1 + 1/k2)
+w = U$pi[1]
+
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+echelle1={lambda1}
+echelle2={lambda2}
+forme1={k1}
+forme2={k2}
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dweibull(x,shape = k1, scale =  lambda1,log=TRUE)    
+  v[,2] = log(1-w) + dweibull(x, shape=k2, scale= lambda2, log=TRUE)  
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  lambda1=(sum(v[,1]*(x)**forme1[length(forme1)])/sum(v[,1]))**(1/forme1[length(forme1)]) 
+  echelle1<-c(echelle1,lambda1)          
+  lambda2=(sum(v[,2]*(x)**forme2[length(forme2)])/sum(v[,2]))**(1/forme2[length(forme2)]) 
+  echelle2<-c(echelle2,lambda2) 
+  f1<-function(p1){
+    log1=v[,1]*(log(p1)+(p1-1)*(log(x)-log(echelle1[length(echelle1)-1]))-(x/echelle1[length(echelle1)-1])**p1)
+    log1[is.infinite(log1)]<-0
+    sum(-log1)
+    }
+  k1=nlm(f1,forme1[length(forme1)])$estimate
+  forme1<-c(forme1,k1)
+  f2<-function(p2){
+    log2=v[,2]*(log(p2)+(p2-1)*(log(x)-log(echelle2[length(echelle2)-1]))-(x/echelle2[length(echelle2)-1])**p2)
+    log2[is.infinite(log2)]<-0
+    sum(-log2)
+  }
+  k2=nlm(f2,forme2[length(forme2)])$estimate
+  forme2<-c(forme2,k2)
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dweibull(x[i], shape = k1,scale = lambda1, log=TRUE)) +
+      v[i,2]*(log(1-w) + dweibull(x[i], shape = k2, scale=lambda2, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorthm for a mixture of two Frechet,
+
+KK= 2
+x=S[S>0]
+n = length(x) 
+f1<-function(k){
+  (U$sd[1]/U$mu[1])**(2) -gamma(1-(2/k))/((gamma(1-(1/k)))**2) +1
+}
+k1=uniroot(f1,interval = c(2.01,20))$root
+lambda1=U$mu[1]/gamma(1 - 1/k1)
+f2<-function(k){
+  (U$sd[2]/U$mu[2])**(2) -gamma(1-(2/k))/((gamma(1-(1/k)))**2) +1
+}
+k2=uniroot(f2,interval = c(2.01,20))$root
+lambda2=U$mu[2]/gamma(1 - 1/k2)
+w = U$pi[1]
+
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-6)
+echelle1={lambda1}
+echelle2={lambda2}
+forme1={k1}
+forme2={k2}
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dfrechet(x,shape = k1, scale =  lambda1,log=TRUE)    
+  v[,2] = log(1-w) + dfrechet(x, shape=k2, scale= lambda2, log=TRUE)  
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  lambda1=(sum(v[,1])/sum(v[,1]*(x)**(-forme1[length(forme1)])))**(1/forme1[length(forme1)]) 
+  echelle1<-c(echelle1,lambda1)          
+  lambda2= (sum(v[,2])/sum(v[,2]*(x)**(-forme2[length(forme2)])))**(1/forme2[length(forme2)])
+  echelle2<-c(echelle2,lambda2) 
+  f1<-function(p1){
+    log1=v[,1]*(log(p1)+(-p1-1)*(log(x)-log(echelle1[length(echelle1)-1]))-(x/echelle1[length(echelle1)-1])**(-p1))
+    log1[is.infinite(log1)]<-0
+    sum(-log1)
+    }
+  k1=nlm(f1,forme1[length(forme1)])$estimate
+  forme1<-c(forme1,k1)
+  f2<-function(p2){
+    log2=v[,2]*(log(p2)+(-p2-1)*(log(x)-log(echelle2[length(echelle2)-1]))-(x/echelle2[length(echelle2)-1])**(-p2))
+    log2[is.infinite(log2)]<-0
+    sum(-log2)
+  }
+  k2=nlm(f2,forme2[length(forme2)])$estimate
+  forme2<-c(forme2,k2)
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dfrechet(x[i], shape = k1,scale = lambda1, log=TRUE)) +
+      v[i,2]*(log(1-w) + dfrechet(x[i], shape = k2, scale=lambda2, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm for a mixture of two Gumble,
+
+x=S
+n=length(x)
+k=2
+w=U1$pi[1]
+sigma1=U1$sd[1]*sqrt(6/(pi)**2)
+mu1=U1$mu[1]-sigma1*0.57721566
+sigma2=U1$sd[2]*sqrt(6/(pi)**2)
+mu2=U1$mu[2]-sigma2*0.57721566
+s=0
+Logic=FALSE
+QQ=-Inf
+QQ.out=NULL
+epsilon=10^(-5)
+sig1={sigma1}
+sig2={sigma2}
+m1={mu1}
+m2={mu2}
+while(!Logic){
+  #E step
+  v=array(0,dim=c(n,k))
+  v[,1]=log(w)+dgumbel(x,loc=mu1,scale =  sigma1,log=TRUE)
+  v[,2]=log(1-w)+dgumbel(x,loc=mu2,scale= sigma2,log=TRUE)
+  for (i in 1:n){
+    v[i,]=exp(v[i,]-max(v[i,]))/sum(exp(v[i,] - max(v[i,])))
+  }
+  #M step
+  # Weights
+  w = mean(v[,1])
+  mu1=log(sum(v[,1])/sum(v[,1]*exp(-x/sig1[length(sig1)])))*sig1[length(sig1)]
+  m1<-c(m1,mu1)
+  f1<-function(s1){
+    log=v[,1]*(-log(s1)-(x-m1[length(m1)-1])/s1 - exp(-(x-m1[length(m1)-1])/s1))
+    log[is.infinite(log)]<-0
+    sum(-log)
+  }
+  sigma1=nlm(f1,sig1[length(sig1)])$estimate
+  sig1<-c(sig1,sigma1)
+  mu2=log(sum(v[,2])/sum(v[,2]*exp(-x/sig2[length(sig2)])))*sig2[length(sig2)]
+  m2<-c(m2,mu2)
+  f2<-function(s2){
+    log=v[,2]*(-log(s2)-(x-m2[length(m2)-1])/s2 - exp(-(x-m2[length(m2)-1])/s2))
+    log[is.infinite(log)]<-0
+    sum(-log)
+  }
+  sigma2=nlm(f2,sig2[length(sig2)])$estimate
+  sig2<-c(sig2,sigma2)
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dgumbel(x[i], loc = mu1, scale = sigma1, log=TRUE)) +
+      v[i,2]*(log(1-w) + dgumbel(x[i], loc = mu2, scale = sigma2, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## The end
