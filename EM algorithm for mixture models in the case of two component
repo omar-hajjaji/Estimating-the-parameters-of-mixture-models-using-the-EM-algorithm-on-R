@@ -1,0 +1,480 @@
+##We begin by the initialisation of the algorithm EM for different distribution,
+
+initz <- function(x, ncomp, init.method = c("kmeans", "hclust")) {
+
+	init.method = match.arg(init.method)
+	# check if 'x' is a matrix (from grouped data)
+	if(is.matrix(x)) {
+		x <- reinstate(x)
+	}
+	if(init.method == "k-means") {
+		a <- kmeans(x, centers = ncomp)$cluster
+	} else {
+		a <- cutree(hclust(dist(x)), ncomp)
+	}
+	res <- list()
+	for(i in 1:ncomp) {
+		res[[i]] <- x[a == i]
+	}
+	count <- sapply(res, length)
+	pi <- count / sum(count)
+	mu <- sapply(res, mean)
+	sd <- sapply(res, sd)
+	order <- order(mu)
+
+	pi <- pi[order]
+	mu <- mu[order]
+	sd <- sd[order]
+	list(pi = pi, mu = mu, sd = sd)
+}
+
+##Now we apply this function on our variable,
+
+U1=initz(S,ncomp=2,init.method= "kmeans")
+U=initz(S[S>0],ncomp = 2,init.method = "kmeans")
+
+## EM algorithm for a mixture of two gaussian,
+
+x=S
+n=length(S)
+k=2
+w=U1$pi[1]
+mu=U1$mu
+sigma=sd(x)
+s=0
+Logic=FALSE
+QQ=-Inf
+QQ.out=NULL
+epsilon=10^(-5)
+while(!Logic){
+  #E step
+  v=array(0,dim=c(n,k))
+  v[,1]=log(w)+dnorm(x,mu[1],sigma,log=TRUE)
+  v[,2]=log(1-w)+dnorm(x,mu[2],sigma,log=TRUE)
+  for (i in 1:n){
+    v[i,]=exp(v[i,]-max(v[i,]))/sum(exp(v[i,] - max(v[i,])))
+  }
+  #M step
+  # Weights
+  w = mean(v[,1])
+  mu = rep(0, 2)
+  for(k in 1:2){
+    for(i in 1:n){
+      mu[k]    = mu[k] + v[i,k]*x[i]
+    }
+    mu[k] = mu[k]/sum(v[,k])
+  }
+  
+  # Standard deviations
+  sigma = 0
+  for(i in 1:n){
+    for(k in 1:2){
+      sigma = sigma + v[i,k]*(x[i] - mu[k])^2
+    }
+  }
+  sigma = sqrt(sigma/sum(v))
+  
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dnorm(x[i], mu[1], sigma, log=TRUE)) +
+      v[i,2]*(log(1-w) + dnorm(x[i], mu[2], sigma, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm for a mixture of an exponential and log-normal,
+
+KK= 2
+x=S[S>0]
+n = length(x)                         
+mean1 = U$mu[1]
+lambda = 1.0/mean1            
+mu=log(U$mu[2])
+tau=log(U$sd[2])
+w = U$pi[1]
+
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dexp(x, lambda,log=TRUE)    #Compute the log of the weights
+  v[,2] = log(1-w) + dlnorm(x, mu, tau, log=TRUE)  #Compute the log of the weights
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  #Go from logs to actual weights in a numerically stable manner
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  mean1 = sum(v[,1]*x)/sum(v[, 1]) #mean of the first component
+  lambda = 1.0/mean1            #parameter for the first component
+  mu = sum(v[,2]*log(x))/sum(v[,2])    #parameter (mean) of the second component
+  tausquared = sum(v[,2]*((log(x)-mu)**2))/sum(v[,2])  #variance for the second component
+  tau = sqrt(tausquared)
+  
+  
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dexp(x[i], lambda, log=TRUE)) +
+      v[i,2]*(log(1-w) + dlnorm(x[i], mu, tau, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm for a mixture of two log-normal,
+
+x=S[S>0]
+KK= 2                               
+n = length(x)                         
+mu = log(U$mu)  
+tau = log(U$sd)
+w = U$pi[1]
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dlnorm(x, mu[1],tau[1],log=TRUE)    
+  v[,2] = log(1-w) + dlnorm(x, mu[2], tau[2], log=TRUE)  
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  mu[1]=sum(v[,1]*log(x))/sum(v[,1])
+  mu[2] = sum(v[,2]*log(x))/sum(v[,2])
+  tausquared1 = sum(v[,1]*((log(x)-mu[1])**2))/sum(v[,1])
+  tausquared2 = sum(v[,2]*((log(x)-mu[2])**2))/sum(v[,2])  
+  tau[1] = sqrt(tausquared1)
+  tau[2]= sqrt(tausquared2)
+  
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dlnorm(x[i], mu[1],tau[1], log=TRUE)) +
+      v[i,2]*(log(1-w) + dlnorm(x[i], mu[2], tau[2], log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm of a mixture of two exponentiel,
+
+KK= 2                               
+n = length(x)                         
+lambda = 1/U$mu            
+w = U$pi[1]
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dexp(x, lambda[1],log=TRUE)    
+  v[,2] = log(1-w) + dexp(x, lambda[2], log=TRUE)  
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  mean1 = sum(v[,1]*x)/sum(v[, 1]) 
+  lambda[1]= 1/mean1 
+  mean2=sum(v[,2]*x)/sum(v[,2])
+  lambda[2]=1/mean2
+  
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dexp(x[i], lambda[1], log=TRUE)) +
+      v[i,2]*(log(1-w) + dexp(x[i], lambda[2], log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm of a mixture of gamma and log-normal,
+
+x=S[S>0]
+n=length(x)
+k=2
+w=U$pi[1]
+alpha=((U$mu[1])/(U$sd[1]))^2
+beta=(U$mu[1])/(U$sd[1]^2)
+mu=log(U$mu[2])
+tau=log(U$sd[2])
+s=0
+Logic=FALSE
+QQ=-Inf
+QQ.out=NULL
+epsilon=10^(-5)
+al={alpha}
+be={beta}
+
+while(!Logic){
+  #E step
+  v=array(0,dim=c(n,k))
+  v[,1]=log(w)+dgamma(x,shape=alpha,rate=beta,log=T)
+  v[,2] = log(1-w) + dlnorm(x, mu, tau, log=TRUE)
+  for (i in 1:n){
+    v[i,]=exp(v[i,]-max(v[i,]))/sum(exp(v[i,]-max(v[i,])))
+  }
+  # M step
+  # Weigths
+  w=mean(v[,1])
+  alpha=idigamma(sum(v[,1]*(log(be[length(be)])+log(x)))/sum(v[,1]))
+  al<-c(al,alpha)
+  beta=al[length(al)-1]*(sum(v[,1])/sum(v[,1]*x))
+  be<-c(be,beta)
+  mu = sum(v[,2]*log(x))/sum(v[,2])   
+  tausquared = sum(v[,2]*((log(x)-mu)**2))/sum(v[,2]) 
+  tau = sqrt(tausquared)
+  #check convergence
+  QQn=0
+  for (i in 1:n){
+    QQn=QQn+v[i,1]*(log(w)+dgamma(x[i],alpha,beta,log=T)) + v[i,2]*(log(1-w)+dlnorm(x[i],mu,tau,log=T))
+  }
+  if (abs(QQn-QQ)/abs(QQn) < epsilon){Logic=TRUE}
+  QQ=QQn
+  QQ.out=c(QQ.out,QQ)
+  s=s+1
+  print(paste(s,QQn))
+}
+
+## EM algorithm for a mixture of two gamma,
+
+## We begin by defining the initial values used in the algorithm below
+to_shape_rate_gamma <- function(mu, sd) {
+  alpha <- (mu / sd)^2
+  lambda <- mu / sd^2
+  list(alpha = alpha, lambda = lambda)
+}
+D=to_shape_rate_gamma(U$mu,U$sd)
+
+x=S[S>0]
+n=length(x)
+k=2
+w=U$pi[1]
+alpha1=D$alpha[1]
+beta1=D$lambda[1]
+alpha2=D$alpha[2]
+beta2=D$lambda[2]
+s=0
+Logic=FALSE
+QQ=-Inf
+QQ.out=NULL
+epsilon=10^(-5.09)
+al1={alpha1}
+be1={beta1}
+al2={alpha2}
+be2={beta2}
+
+while(!Logic){
+  #E step
+  v=array(0,dim=c(n,k))
+  v[,1]=log(w)+dgamma(x,shape=alpha1,rate=beta1,log=T)
+  v[,2]=log(1-w)+dgamma(x,shape=alpha2,rate=beta2,log=T)
+  for (i in 1:n){
+    v[i,]=exp(v[i,]-max(v[i,]))/sum(exp(v[i,]-max(v[i,])))
+  }
+  # M step
+  # Weigths
+  w=mean(v[,1])
+  beta1=al1[length(al1)]*(sum(v[,1])/sum(v[,1]*x))
+  be1<-c(be1 , beta1)
+  beta2=al2[length(al2)]*(sum(v[,2])/sum(v[,2]*x))
+  be2<-c(be2,beta2)
+  alpha1=idigamma(sum(v[,1]*(log(be1[length(be1)-1])+log(x)))/sum(v[,1]))
+  al1<-c(al1,alpha1)
+  alpha2=idigamma(sum(v[,2]*(log(be2[length(be2)-1])+log(x)))/sum(v[,2]))
+  al2<-c(al2,alpha2)
+  
+  
+  
+  #check convergence
+  QQn=0
+  for (i in 1:n){
+    QQn=QQn+v[i,1]*(log(w)+dgamma(x[i],alpha1,beta1,log=T)) + v[i,2]*(log(1-w)+dgamma(x[i],alpha2,beta2,log=T))
+  }
+  if (abs(QQn-QQ)/abs(QQn) < epsilon){Logic=TRUE}
+  QQ=QQn
+  QQ.out=c(QQ.out,QQ)
+  s=s+1
+  print(paste(s,QQn))
+}
+
+## EM algorithm of two weibull (using the Newton-Raphson algorithm),
+
+KK= 2
+x=S[S>0]
+n = length(x)                         
+k1=(U$sd[1]/U$mu[1])^(-1.086)
+lambda1=U$mu[1]/gamma(1 + 1/k1)
+k2=(U$sd[2]/U$mu[2])^(-1.086)
+lambda2=U$mu[2]/gamma(1 + 1/k2)
+w = U$pi[1]
+
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+echelle1={lambda1}
+echelle2={lambda2}
+forme1={k1}
+forme2={k2}
+##Checking convergence of the algorithm
+while(!Logic){
+  ## E step
+  v = array(0, dim=c(n,KK))
+  v[,1] = log(w) + dweibull(x,shape = k1, scale =  lambda1,log=TRUE)    
+  v[,2] = log(1-w) + dweibull(x, shape=k2, scale= lambda2, log=TRUE)  
+  for(i in 1:n){
+    v[i,] = exp(v[i,] - max(v[i,]))/sum(exp(v[i,] - max(v[i,])))  
+  }
+  
+  ## M step
+  # Weights
+  w = mean(v[,1])
+  ## parameters
+  lambda1=(sum(v[,1]*(x)**forme1[length(forme1)])/sum(v[,1]))**(1/forme1[length(forme1)]) 
+  echelle1<-c(echelle1,lambda1)          
+  lambda2=(sum(v[,2]*(x)**forme2[length(forme2)])/sum(v[,2]))**(1/forme2[length(forme2)]) 
+  echelle2<-c(echelle2,lambda2) 
+  f1<-function(p1){
+    log1=v[,1]*(log(p1)+(p1-1)*(log(x)-log(echelle1[length(echelle1)-1]))-(x/echelle1[length(echelle1)-1])**p1)
+    log1[is.infinite(log1)]<-0
+    sum(-log1)
+    }
+  k1=nlm(f1,forme1[length(forme1)])$estimate
+  forme1<-c(forme1,k1)
+  f2<-function(p2){
+    log2=v[,2]*(log(p2)+(p2-1)*(log(x)-log(echelle2[length(echelle2)-1]))-(x/echelle2[length(echelle2)-1])**p2)
+    log2[is.infinite(log2)]<-0
+    sum(-log2)
+  }
+  k2=nlm(f2,forme2[length(forme2)])$estimate
+  forme2<-c(forme2,k2)
+  ##Check convergence
+  QQn = 0
+  for(i in 1:n){
+    QQn = QQn + v[i,1]*(log(w) + dweibull(x[i], shape = k1,scale = lambda1, log=TRUE)) +
+      v[i,2]*(log(1-w) + dweibull(x[i], shape = k2, scale=lambda2, log=TRUE))
+  }
+  if(abs(QQn-QQ)/abs(QQn)<epsilon){
+    Logic=TRUE
+  }
+  QQ = QQn
+  QQ.out = c(QQ.out, QQ)
+  s = s + 1
+  print(paste(s, QQn))
+}
+
+## EM algorithm for a mixture of gamma and weibull,
+
+x=S[S>0]
+n=length(x)
+k=2
+w=U$pi[1]
+alpha1=D$alpha[1]
+beta1=D$lambda[1]
+k2=(U$sd[2]/U$mu[2])^(-1.086)
+lambda2=U$mu[2]/gamma(1 + 1/k2)
+
+s  = 0
+Logic = FALSE
+QQ = -Inf
+QQ.out = NULL
+epsilon = 10^(-5)
+echelle2={lambda2}
+forme2={k2}
+al1={alpha1}
+be1={beta1}
+while(!Logic){
+  #E step
+  v=array(0,dim=c(n,k))
+  v[,1]=log(w)+dgamma(x,shape=alpha1,rate=beta1,log=T)
+  v[,2]=log(1-w)+dweibull(x,shape=k2,scale=lambda2,log=T)
+  for (i in 1:n){
+    v[i,]=exp(v[i,]-max(v[i,]))/sum(exp(v[i,]-max(v[i,])))
+  }
+  # M step
+  # Weigths
+  w=mean(v[,1])
+  beta1=al1[length(al1)]*(sum(v[,1])/sum(v[,1]*x))
+  be1<-c(be1 , beta1)
+  c1<-function(s1){
+    log1=v[,1]*(s1*log(be1[length(be1)-1])+(s1-1)*log(x)-log(gamma(s1)))
+    -sum(log1)
+  }
+  alpha1=nlm(c1,al1[length(al1)])$estimate
+  al1<-c(al1,alpha1)
+  lambda2=(sum(v[,2]*(x)**forme2[length(forme2)])/sum(v[,2]))**(1/forme2[length(forme2)]) 
+  echelle2<-c(echelle2,lambda2) 
+  f2<-function(p2){
+    log2=v[,2]*(log(p2)+(p2-1)*(log(x)-log(echelle2[length(echelle2)-1]))-(x/echelle2[length(echelle2)-1])**p2)
+    log2[is.infinite(log2)]<-0
+    sum(-log2)
+  }
+  k2=nlm(f2,forme2[length(forme2)])$estimate
+  forme2<-c(forme2,k2)
+  
+  
+  #check convergence
+  QQn=0
+  for (i in 1:n){
+    QQn=QQn+v[i,1]*(log(w)+dgamma(x[i],alpha1,beta1,log=T)) + v[i,2]*(log(1-w)+dweibull(x[i],shape = k2, scale=lambda2,log=T))
+  }
+  if (abs(QQn-QQ)/abs(QQn) < epsilon){Logic=TRUE}
+  QQ=QQn
+  QQ.out=c(QQ.out,QQ)
+  s=s+1
+  print(paste(s,QQn))
+}
+
+## The end.
