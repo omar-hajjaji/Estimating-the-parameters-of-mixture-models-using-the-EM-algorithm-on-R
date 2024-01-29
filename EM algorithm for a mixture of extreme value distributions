@@ -30,6 +30,8 @@ initz <- function(x, ncomp, init.method = c("kmeans", "hclust")) {
 	list(pi = pi, mu = mu, sd = sd)
 }
 
+## Here S is the variable that we want to estimate the mixture parameters
+
 U1=initz(S,ncomp=2,init.method= "kmeans")
 U=initz(S[S>0],ncomp = 2,init.method = "kmeans")
 
